@@ -1,8 +1,8 @@
 services:
   odysseus:
     build: .
-    ports:
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
+    expose:
+      - "7000"
     volumes:
       - ${APP_DATA_DIR:-./data}:/app/data:z
       - ${APP_LOGS_DIR:-./logs}:/app/logs:z
@@ -79,8 +79,8 @@ services:
 
   chromadb:
     image: docker.io/chromadb/chroma:latest
-    ports:
-      - "${CHROMADB_BIND:-127.0.0.1}:8100:8000"
+    expose:
+      - "8000"
     volumes:
       - chromadb-data:/chroma/chroma
     environment:
@@ -107,13 +107,13 @@ services:
           sed "s|__SEARXNG_SECRET__|$$secret|g" /tmp/searxng-settings.yml.template > /etc/searxng/settings.yml
         fi
         exec /usr/local/searxng/entrypoint.sh
-    ports:
-      - "127.0.0.1:8080:8080"
+    expose:
+      - "8080"
     volumes:
       - searxng-data:/etc/searxng
       - ./config/searxng/settings.yml:/tmp/searxng-settings.yml.template:ro,z
     environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_BASE_URL=http://searxng:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-}
     # The official searxng image runs as the non-root `searxng` user, but its
     # entrypoint still needs to chown /etc/searxng on first boot, drop privs via
@@ -140,12 +140,12 @@ services:
   ntfy:
     image: docker.io/binwiederhier/ntfy
     command: serve
-    ports:
-      - "${NTFY_BIND:-127.0.0.1}:8091:80"
+    expose:
+      - "80"
     volumes:
       - ntfy-cache:/var/cache/ntfy
     environment:
-      - NTFY_BASE_URL=${NTFY_BASE_URL:-http://localhost:8091}
+      - NTFY_BASE_URL=http://ntfy
     restart: unless-stopped
 
 volumes:
