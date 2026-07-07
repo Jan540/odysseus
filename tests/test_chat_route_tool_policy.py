@@ -96,6 +96,48 @@ def test_disabled_tools_respects_missing_vs_explicit_toggles():
     )
 
 
+def test_explicit_web_intent_initialized_from_tool_intent():
+    """chat_stream must initialize _explicit_web_intent before tool policy uses it."""
+    source = _CHAT_ROUTES.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    chat_stream_func = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "chat_stream":
+            chat_stream_func = node
+            break
+    assert chat_stream_func is not None
+
+    assignments = []
+    loads = []
+    for node in ast.walk(chat_stream_func):
+        if isinstance(node, ast.Name) and node.id == "_explicit_web_intent":
+            if isinstance(node.ctx, ast.Store):
+                assignments.append(node)
+            elif isinstance(node.ctx, ast.Load):
+                loads.append(node)
+
+    assert assignments, "_explicit_web_intent must be assigned in chat_stream"
+    assert loads, "_explicit_web_intent must be used in chat_stream"
+    assert min(node.lineno for node in assignments) < min(
+        node.lineno for node in loads
+    ), "_explicit_web_intent must be initialized before it is referenced"
+
+    assignment = next(
+        node
+        for node in ast.walk(chat_stream_func)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "_explicit_web_intent"
+            for target in node.targets
+        )
+    )
+    src_segment = ast.get_source_segment(source, assignment)
+    assert src_segment and "_tool_intent" in src_segment
+    assert 'category == "web"' in src_segment
+    assert "allow_web_search is not None" in src_segment
+
+
 # ── Functional tests of the disabled-tools logic ───────────────
 
 
@@ -115,10 +157,7 @@ def _build_disabled_tools(
     # Issue #3229 fix: only disable when explicitly set to a falsy value.
     if allow_bash is not None and str(allow_bash).lower() != "true":
         disabled_tools.add("bash")
-    if (
-        allow_web_search is not None
-        and str(allow_web_search).lower() != "true"
-    ):
+    if allow_web_search is not None and str(allow_web_search).lower() != "true":
         disabled_tools.add("web_search")
         disabled_tools.add("web_fetch")
 
@@ -220,7 +259,7 @@ def test_form_data_none_body_true_works():
     """
     # Simulate the fallback logic
     form_data_val = None  # not in form_data
-    body_val = "true"     # from JSON body
+    body_val = "true"  # from JSON body
     allow_bash = form_data_val or body_val
     assert str(allow_bash).lower() == "true"
 
@@ -231,7 +270,8 @@ def test_form_data_none_body_true_works():
 def test_explicit_false_disables_even_for_admin():
     """An admin who explicitly sends allow_bash=false should have bash disabled."""
     disabled = _build_disabled_tools(
-        allow_bash="false", can_use_bash=True,
+        allow_bash="false",
+        can_use_bash=True,
     )
     assert "bash" in disabled
 
@@ -245,15 +285,18 @@ def test_frontend_always_sends_explicit_allow_bash():
     """chat.js must always send allow_bash (both true and false), not only on toggle ON."""
     source = _CHAT_JS.read_text(encoding="utf-8")
     # Must not only append 'true' — must also handle the false case
-    assert "allow_bash', el('bash-toggle').checked ? 'true' : 'false'" in source or \
-           "allow_bash', 'false'" in source, (
-        "Frontend must send explicit allow_bash=false when toggle is off"
-    )
+    assert (
+        "allow_bash', el('bash-toggle').checked ? 'true' : 'false'" in source
+        or "allow_bash', 'false'" in source
+    ), "Frontend must send explicit allow_bash=false when toggle is off"
 
 
 def test_frontend_sends_explicit_allow_web_search_false_in_agent_mode():
     """chat.js must send allow_web_search=false when web toggle is off in agent mode."""
     source = _CHAT_JS.read_text(encoding="utf-8")
-    assert "fd.append('allow_web_search', el('web-toggle').checked ? 'true' : 'false')" in source, (
+    assert (
+        "fd.append('allow_web_search', el('web-toggle').checked ? 'true' : 'false')"
+        in source
+    ), (
         "Frontend must send explicit allow_web_search=false in agent mode when toggle is off"
     )
